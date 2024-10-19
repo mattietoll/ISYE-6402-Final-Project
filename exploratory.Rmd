@@ -1,0 +1,176 @@
+---
+title: "Exploratory ISYE Analysis"
+output: html_notebook
+---
+
+```{r}
+library(TSA)
+library(mgcv)
+```
+
+read data, time series of total sales and total orders 2020-2024
+
+```{r}
+vehicles = read.csv('data/VehicleData-1.csv')
+
+#sales data in millions of units
+sales = ts(vehicles$Total.Sales, start=c(2000, 01), frequency=12)
+
+#manufacturer new vehicles/parts orders in millions of dollars
+orders = ts(vehicles$New.Orders, start=c(2000, 01), frequency=12)
+
+par(mfrow=c(2,1), mar = c(2, 2, 2, 1))
+plot(sales, main="Sales", ylab="")
+plot(orders, main="Orders", ylab="")
+```
+
+observations:
+
+-   nonlinear trent
+
+-   heteroskedasticity
+
+-   dip in 2008 (financial crisis), 2020 (Covid)
+
+-   
+
+Sales data ACF/PACF:
+
+```{r}
+acf(sales)
+pacf(sales)
+```
+
+significant autocorrelation, low partial ACF beyond 1
+
+```{r}
+par(mfrow=c(2,1), mar=c(2,1,2,4))
+ratio = sales/orders
+plot(ratio, main="Ratio of Sales:Orders")
+plot(diff(ratio), main="Differenced Ratio")
+```
+
+the units (sales in millions of units, orders in millions of dollars) are not on the same scale, but it is clear there is a fairly clean decreasing trend (indicating more demand than supply) here with some heteroskedasticity. 2008/2020 shocks align with major economic events but 2000-2008 still seemed more volatile than 2010-2019ish. May be modeled with an ARIMA-GARCH joint model
+
+```{r}
+plot(sales, main="Sales w Trend Line")
+
+x = c(1:length(sales))
+x = c(x - min(x))/max(x)
+
+splines = gam(sales~s(x))
+splines_ts = ts(fitted(splines), start=c(2000, 01), frequency=12)
+
+lines(splines_ts, col='red')
+
+plot(sales-splines_ts, main="Residuals after Trend Removal")
+acf(sales-splines_ts, main="ACF of residuals")
+```
+
+After performing trend removal on raw sales data, ACF shows underlying pattern and plot of residuals appears heteroskedastic
+
+**Multivariate**
+
+import all additional data and fit to time series window starting at Jan 2000
+
+```{r}
+domestic_prod = read.csv('data/domestic_production.csv')
+domestic_prod = window(
+  ts(domestic_prod$DAUPSA, start=c(1993, 01), frequency=12), 
+  start=c(2000,01), end=c(2024,06))
+
+domestic_sales = read.csv('data/domestic_sales.csv')
+domestic_sales = window(
+  ts(domestic_sales$DAUTOSAAR, start=c(1967, 01), frequency=12), 
+  start=c(2000,01), end=c(2024,06))
+
+exports = read.csv('data/exports.csv')
+exports = window(
+  ts(exports$AUENSA, start=c(1993, 01), frequency=12), 
+  start=c(2000,01), end=c(2024,06))
+
+foreign_sales = read.csv('data/foreign_sales.csv')
+foreign_sales = window(
+  ts(foreign_sales$FAUTOSA, start=c(1967, 01), frequency=12), 
+  start=c(2000,01), end=c(2024,06))
+
+gas_price = read.csv('data/gas_price.csv')
+gas_price = window(
+  ts(gas_price$GASREGCOVM, start=c(1990, 09), frequency=12), 
+  start=c(2000,01), end=c(2024,06)
+)
+
+inventory_sales_ratio = read.csv('data/inventory_sales_ratio.csv')
+inventory_sales_ratio = window(
+  ts(inventory_sales_ratio$AISRSA, start=c(1993, 01), frequency=12), 
+  start=c(2000,01), end=c(2024,06)
+)
+
+manufacturer_orders = read.csv('data/manufacturer_orders.csv')
+manufacturer_orders = window(
+  ts(manufacturer_orders$AMVPNO, start=c(1992, 02), frequency=12), 
+  start=c(2000,01), end=c(2024,06)
+)
+
+miles_traveled = read.csv('data/miles_traveled.csv')
+miles_traveled = ts(miles_traveled$VMT, start=c(2000, 01), frequency=12)
+
+public_transit = read.csv('data/public_transit.csv')
+public_transit = ts(public_transit$TRANSIT, start=c(2000, 01), frequency=12)
+```
+
+plot factors in grid
+
+```{r}
+windows(width=7,height=7)
+par(mfrow=c(3,3), mar = c(2, 2, 2, 1))
+
+#plot 1
+plot(domestic_prod, main="Domestic Production", ylab="")
+
+#plot 2
+plot(manufacturer_orders, main="Manufacturer Orders", ylab="")
+
+#plot 3
+plot(gas_price, main="Gas Price", ylab="")
+
+#plot 4
+plot(domestic_sales, main="Domestic Sales", ylab="")
+
+#plot 5
+plot(foreign_sales, main="Foreign Sales", ylab="")
+
+#plot 6
+plot(miles_traveled, main="Miles Traveled by Vehicle", ylab="")
+
+#plot 7
+plot(exports, main="Exports", ylab="")
+
+#plot 8
+plot(inventory_sales_ratio, main="Inventory:Sales", ylab="")
+
+#plot 9
+plot(public_transit, main="Public Transit Use", ylab="")
+
+readline(prompt = 'Press [Enter] to continue...')
+```
+
+initial thoughts:
+
+-   domestic sales, foreign sales, and exports decreased starting around 2015, but manufacturers ordering parts has been increasing
+
+    -   Total sales on primary TS does not decrease
+
+-   lower sales after \~2021 may be explained by low auto inventory:sales ratio (low inventory availability)
+
+    -   Consistently decreasing ratio of sales to orders since 2000
+
+    -   new orders for parts increase with a fairly linear trend, with exceptions around 2008 and 2020 again; orders increasing following pandemic
+
+-   miles traveled by vehicle seems to follow similar "wave" trend and definitely shows seasonality. would be cleaner to model/forecast
+
+thoughts:
+
+-   need multivariate analysis unit
+
+-   ARIMA-GARCH joint model for sales:orders trend
